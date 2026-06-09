@@ -81,6 +81,18 @@ app.use(optional);
 const { getMarqueeNotices } = require('./modules/admin/services/marquee.service');
 app.get('/marquee', getMarqueeNotices);
 
+// ─── Public Dashboard Stats (For Login Page Promo) ───────────────────────────
+app.get('/api/public/stats', async (req, res) => {
+  try {
+    const dashboardService = require('./modules/admin/services/dashboard/dashboardService');
+    const stats = await dashboardService.getDashboardStats();
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    console.error("Public stats error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // ─── Azure Blob upload endpoints ─────────────────────────────────────────────
 function getAudioDurationInSeconds(filePath) {
   try {
@@ -151,13 +163,13 @@ app.post('/uploadToS3', upload.single('file'), async (req, res) => {
     const fileContent = fs.readFileSync(filePath);
     const data = await azureBlobService.uploadBlob(bucketName, path.basename(filePath), fileContent, req.file.mimetype);
     if (!data.success) throw new Error('Upload error');
-    
+
     if (task === 'transcribe') {
       const transcription = await transcribeAudio(filePath);
       fs.rmSync(filePath);
       return res.json({ ...data, transcription, file: getFileURI(bucketName, path.basename(filePath)) });
     }
-    
+
     fs.rmSync(filePath);
     res.json({ ...data, file: getFileURI(bucketName, path.basename(filePath)), key: path.basename(filePath) });
   } catch (error) {
@@ -252,17 +264,6 @@ app.use('/', proctoringRouter);
 // ─── Dashboard (admin analytics) ─────────────────────────────────────────────
 app.use('/api/dashboard', dashboardRoutes);
 
-// ─── Public Dashboard Stats (For Login Page Promo) ───────────────────────────
-app.get('/api/public/stats', async (req, res) => {
-  try {
-    const dashboardService = require('./modules/admin/services/dashboard/dashboardService');
-    const stats = await dashboardService.getDashboardStats();
-    res.json({ success: true, data: stats });
-  } catch (error) {
-    console.error("Public stats error:", error);
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
 
 // ─── Questions route (questions/:id) from placements ─────────────────────────
 const { getQuestionById, updateQuestion } = require('./modules/student/services/placements.service');
