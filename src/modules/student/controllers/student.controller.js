@@ -80,14 +80,27 @@ async function getAllStudents(req, res) {
 }
 
 async function getStudentCreds(req, res) {
+  console.log(`[getStudentCreds] req.email (from token):`, req.email);
+  console.log(`[getStudentCreds] req.query.email (from URL):`, req.query.email);
+
   const { student } = connectTodb(req.tenantDB);
   if (!req.tenantDB) return res.status(500).json({ error: 'No tenant DB available' });
   try {
-    const { email } = req.query;
+    const email = req.email || req.query.email;
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+    console.log(`[getStudentCreds] Executing student.findOne({ email: ${email} }) on DB ${req.tenantDB}...`);
+
+    const startTime = performance.now();
     const findStudent = await student.findOne({ email });
+    const duration = performance.now() - startTime;
+    console.log(`[getStudentCreds] findOne completed in ${duration.toFixed(2)}ms, found: ${!!findStudent}`);
+
     if (!findStudent) throw new Error('Student not found');
     res.status(200).json({ data: findStudent });
   } catch (error) {
+    console.error(`[getStudentCreds] Error:`, error.message);
     res.status(500).json({ err: error.message });
   }
 }
@@ -161,9 +174,7 @@ async function verifyStudent(req, res) {
 }
 
 async function loginStudent(req, res) {
-  const { student } = connectTodb(req.tenantDB);
   const { mainDBusers } = getGlobalCollections();
-  if (!req.tenantDB) return res.status(500).json({ error: 'No tenant DB available' });
   try {
     const { email, password } = req.body;
     const globalUser = await mainDBusers.findOne({ email });
@@ -173,13 +184,22 @@ async function loginStudent(req, res) {
     const isMatch = await bcrypt.compare(password, globalUser.password);
     if (!isMatch) throw new Error('Invalid credentials');
 
+    // Get tenant DB using the user's orgId
+    const orgId = globalUser.orgId || req.orgId; // Fallback to req.orgId if passed
+    if (!orgId) throw new Error('No organization associated with this user');
+    
+    // Dynamically connect to the tenant DB
+    const { getTenantDB } = require('../../../shared/db/connection');
+    const tenantDbObj = await getTenantDB(orgId);
+    const { student } = connectTodb(tenantDbObj);
+
     const tenantStudent = await student.findOne({ email });
 
     const token = jwt.sign(
       {
         userId: globalUser._id.toString(),
         email: globalUser.email,
-        orgId: req.orgId,
+        orgId: orgId,
         role: 'STUDENT',
       },
       config.auth.jwtSecret
